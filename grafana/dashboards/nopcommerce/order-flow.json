@@ -1,0 +1,48 @@
+{
+  "id": null,
+  "uid": "nop-order-flow",
+  "title": "nopCommerce - Order Flow",
+  "tags": ["nopcommerce", "order", "flow"],
+  "timezone": "browser",
+  "schemaVersion": 38,
+  "version": 1,
+  "refresh": "10s",
+  "panels": [
+    {
+      "type": "text",
+      "title": "Order Flow - Overview",
+      "id": 1,
+      "gridPos": { "x": 0, "y": 0, "w": 24, "h": 4 },
+      "options": {
+        "mode": "markdown",
+        "content": "This dashboard is reserved for the **Customer places an order** flow. Panels will be populated as we add instrumentation for Basket, Order, Payment, and Inventory."
+      }
+    },
+    {
+      "type": "timeseries",
+      "title": "Order Placement - Result Rate (placeholder)",
+      "id": 2,
+      "gridPos": { "x": 0, "y": 4, "w": 12, "h": 8 },
+      "targets": [
+        {
+          "expr": "sum by (result) (rate(order_place_result_total[5m]))",
+          "legendFormat": "{{result}}",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Order Placement - p95 Duration (ms) (placeholder)",
+      "id": 3,
+      "gridPos": { "x": 12, "y": 4, "w": 12, "h": 8 },
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.95, sum by (le) (rate(order_place_duration_ms_bucket[5m])))",
+          "legendFormat": "p95",
+          "refId": "A"
+        }
+      ]
+    }
+  ]
+}

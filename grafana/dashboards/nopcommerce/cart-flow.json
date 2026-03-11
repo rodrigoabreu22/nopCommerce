@@ -1,0 +1,38 @@
+{
+  "id": null,
+  "uid": "nop-cart-flow",
+  "title": "nopCommerce - Cart Flow",
+  "tags": ["nopcommerce", "cart", "flow"],
+  "timezone": "browser",
+  "schemaVersion": 38,
+  "version": 1,
+  "refresh": "10s",
+  "panels": [
+    {
+      "type": "timeseries",
+      "title": "Add To Cart - Result Rate",
+      "id": 1,
+      "gridPos": { "x": 0, "y": 0, "w": 12, "h": 8 },
+      "targets": [
+        {
+          "expr": "sum by (result) (rate(cart_add_result_total[5m]))",
+          "legendFormat": "{{result}}",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Add To Cart - p95 Duration (ms)",
+      "id": 2,
+      "gridPos": { "x": 12, "y": 0, "w": 12, "h": 8 },
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.95, sum by (le) (rate(cart_add_duration_ms_bucket[5m])))",
+          "legendFormat": "p95",
+          "refId": "A"
+        }
+      ]
+    }
+  ]
+}

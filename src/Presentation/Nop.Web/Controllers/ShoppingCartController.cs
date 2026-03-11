@@ -590,7 +590,7 @@ public partial class ShoppingCartController : BasePublicController
 
     //add product to cart using AJAX
     //currently we use this method on catalog pages (category/manufacturer/etc)
-''    [HttpPost]
+    [HttpPost]
     public virtual async Task<IActionResult> AddProductToCart_Catalog(int productId, int shoppingCartTypeId,
         int quantity, bool forceredirection = false)
     {

@@ -1,0 +1,10 @@
+apiVersion: 1
+
+providers:
+  - name: nopcommerce
+    type: file
+    disableDeletion: false
+    editable: true
+    folder: nopCommerce
+    options:
+      path: /var/lib/grafana/dashboards/nopcommerce

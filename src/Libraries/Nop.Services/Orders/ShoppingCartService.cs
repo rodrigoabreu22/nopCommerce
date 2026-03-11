@@ -1567,6 +1567,8 @@ public partial class ShoppingCartService : IShoppingCartService
         var warningsCount = 0;
         var isUpdate = false;
         var warnings = new List<string>();
+        IList<ShoppingCartItem> cart = null;
+        ShoppingCartItem shoppingCartItem = null;
 
         try
         {
@@ -1605,9 +1607,9 @@ public partial class ShoppingCartService : IShoppingCartService
             //reset checkout info
             await _customerService.ResetCheckoutDataAsync(customer, storeId);
 
-            var cart = await GetShoppingCartAsync(customer, shoppingCartType, storeId);
+            cart = await GetShoppingCartAsync(customer, shoppingCartType, storeId);
 
-            var shoppingCartItem = await FindShoppingCartItemInTheCartAsync(cart,
+            shoppingCartItem = await FindShoppingCartItemInTheCartAsync(cart,
                 shoppingCartType, product, attributesXml, customerEnteredPrice,
                 rentalStartDate, rentalEndDate);
 
