@@ -13,6 +13,7 @@ using Nop.Core.Domain.Shipping;
 using Nop.Core.Http;
 using Nop.Core.Http.Extensions;
 using Nop.Core.Infrastructure;
+using Nop.Core.Telemetry;
 using Nop.Services.Attributes;
 using Nop.Services.Catalog;
 using Nop.Services.Common;
@@ -589,11 +590,15 @@ public partial class ShoppingCartController : BasePublicController
 
     //add product to cart using AJAX
     //currently we use this method on catalog pages (category/manufacturer/etc)
-    [HttpPost]
+''    [HttpPost]
     public virtual async Task<IActionResult> AddProductToCart_Catalog(int productId, int shoppingCartTypeId,
         int quantity, bool forceredirection = false)
     {
         var cartType = (ShoppingCartType)shoppingCartTypeId;
+        using var activity = NopTelemetry.ActivitySource.StartActivity("cart.add.catalog");
+        activity?.SetTag("product.id", productId);
+        activity?.SetTag("cart.type", cartType.ToString());
+        activity?.SetTag("cart.quantity", quantity);
 
         var product = await _productService.GetProductByIdAsync(productId);
         if (product == null)
@@ -665,6 +670,7 @@ public partial class ShoppingCartController : BasePublicController
         //first, try to find existing shopping cart item
         var customer = await _workContext.GetCurrentCustomerAsync();
         var store = await _storeContext.GetCurrentStoreAsync();
+        activity?.SetTag("store.id", store.Id);
         var cart = await _shoppingCartService.GetShoppingCartAsync(customer, cartType, store.Id);
         var shoppingCartItem = await _shoppingCartService.FindShoppingCartItemInTheCartAsync(cart, cartType, product);
         //if we already have the same product in the cart, then use the total quantity to validate
@@ -677,6 +683,8 @@ public partial class ShoppingCartController : BasePublicController
         {
             //cannot be added to the cart
             //let's display standard warnings
+            activity?.SetTag("cart.add.result", "warnings");
+            activity?.SetTag("cart.add.warnings.count", addToCartWarnings.Count);
             return Json(new
             {
                 success = false,
@@ -695,6 +703,8 @@ public partial class ShoppingCartController : BasePublicController
         {
             //cannot be added to the cart
             //but we do not display attribute and gift card warnings here. let's do it on the product details page
+            activity?.SetTag("cart.add.result", "redirect");
+            activity?.SetTag("cart.add.warnings.count", addToCartWarnings.Count);
             return Json(new { redirect = redirectUrl });
         }
 
@@ -712,6 +722,7 @@ public partial class ShoppingCartController : BasePublicController
                 if (_shoppingCartSettings.DisplayWishlistAfterAddingProduct || forceredirection)
                 {
                     //redirect to the wishlist page
+                    activity?.SetTag("cart.add.result", "redirect");
                     return Json(new
                     {
                         redirect = wishlistRouteUrl
@@ -739,6 +750,7 @@ public partial class ShoppingCartController : BasePublicController
                 }
                 else
                 {
+                    activity?.SetTag("cart.add.result", "success");
                     return Json(new
                     {
                         success = true,
@@ -758,6 +770,7 @@ public partial class ShoppingCartController : BasePublicController
                 if (_shoppingCartSettings.DisplayCartAfterAddingProduct || forceredirection)
                 {
                     //redirect to the shopping cart page
+                    activity?.SetTag("cart.add.result", "redirect");
                     return Json(new
                     {
                         redirect = Url.RouteUrl(NopRouteNames.General.CART)
@@ -790,9 +803,12 @@ public partial class ShoppingCartController : BasePublicController
     [HttpPost]
     public virtual async Task<IActionResult> AddProductToCart_Details(int productId, int shoppingCartTypeId, IFormCollection form, int? customwishlistid = null)
     {
+        using var activity = NopTelemetry.ActivitySource.StartActivity("cart.add.details");
+        activity?.SetTag("product.id", productId);
         var product = await _productService.GetProductByIdAsync(productId);
         if (product == null)
         {
+            activity?.SetTag("cart.add.result", "redirect");
             return Json(new
             {
                 redirect = Url.RouteUrl(NopRouteNames.General.HOMEPAGE)
@@ -856,6 +872,7 @@ public partial class ShoppingCartController : BasePublicController
 
         //entered quantity
         var quantity = _productAttributeParser.ParseEnteredQuantity(product, form);
+        activity?.SetTag("cart.quantity", quantity);
 
         //product and gift card attributes
         var attributes = await _productAttributeParser.ParseProductAttributesAsync(product, form, addToCartWarnings);
@@ -866,10 +883,13 @@ public partial class ShoppingCartController : BasePublicController
         var cartType = updatecartitem == null ? (ShoppingCartType)shoppingCartTypeId :
             //if the item to update is found, then we ignore the specified "shoppingCartTypeId" parameter
             updatecartitem.ShoppingCartType;
+        activity?.SetTag("cart.type", cartType.ToString());
+        activity?.SetTag("cart.update", updatecartitem != null);
 
         await SaveItemAsync(updatecartitem, addToCartWarnings, product, cartType, attributes, customerEnteredPriceConverted, rentalStartDate, rentalEndDate, quantity);
 
         //return result
+        activity?.SetTag("cart.add.warnings.count", addToCartWarnings.Count);
         return await GetProductToCartDetailsAsync(addToCartWarnings, cartType, product, updatecartitem, customwishlistid);
     }
 

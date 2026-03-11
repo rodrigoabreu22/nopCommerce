@@ -1,4 +1,6 @@
-﻿using System.Net;
+﻿using System.Diagnostics;
+using System.Diagnostics.Metrics;
+using System.Net;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.Infrastructure;
 using Microsoft.AspNetCore.Mvc.Routing;
@@ -10,6 +12,7 @@ using Nop.Core.Domain.Discounts;
 using Nop.Core.Domain.Orders;
 using Nop.Core.Domain.Stores;
 using Nop.Core.Events;
+using Nop.Core.Telemetry;
 using Nop.Data;
 using Nop.Services.Attributes;
 using Nop.Services.Catalog;
@@ -1553,132 +1556,203 @@ public partial class ShoppingCartService : IShoppingCartService
 
         ArgumentNullException.ThrowIfNull(product);
 
+        using var activity = NopTelemetry.ActivitySource.StartActivity("cart.add.service");
+        activity?.SetTag("product.id", product.Id);
+        activity?.SetTag("store.id", storeId);
+        activity?.SetTag("cart.type", shoppingCartType.ToString());
+        activity?.SetTag("cart.quantity", quantity);
+
+        var stopwatch = Stopwatch.StartNew();
+        var result = "success";
+        var warningsCount = 0;
+        var isUpdate = false;
         var warnings = new List<string>();
-        if (shoppingCartType == ShoppingCartType.ShoppingCart && !await _permissionService.AuthorizeAsync(StandardPermission.PublicStore.ENABLE_SHOPPING_CART, customer))
+
+        try
         {
-            warnings.Add("Shopping cart is disabled");
-            return warnings;
-        }
-
-        if (shoppingCartType == ShoppingCartType.Wishlist && !await _permissionService.AuthorizeAsync(StandardPermission.PublicStore.ENABLE_WISHLIST, customer))
-        {
-            warnings.Add("Wishlist is disabled");
-            return warnings;
-        }
-
-        if (customer.IsSearchEngineAccount())
-        {
-            warnings.Add("Search engine can't add to cart");
-            return warnings;
-        }
-
-        if (quantity <= 0)
-        {
-            warnings.Add(await _localizationService.GetResourceAsync("ShoppingCart.QuantityShouldPositive"));
-            return warnings;
-        }
-
-        //reset checkout info
-        await _customerService.ResetCheckoutDataAsync(customer, storeId);
-
-        var cart = await GetShoppingCartAsync(customer, shoppingCartType, storeId);
-
-        var shoppingCartItem = await FindShoppingCartItemInTheCartAsync(cart,
-            shoppingCartType, product, attributesXml, customerEnteredPrice,
-            rentalStartDate, rentalEndDate);
-
-        if (shoppingCartItem != null)
-        {
-            //update existing shopping cart item
-            var newQuantity = shoppingCartItem.Quantity + quantity;
-
-            await addRequiredProductsToCartAsync(newQuantity, wishlistId);
-
-            if (warnings.Any())
-                return warnings;
-
-            warnings.AddRange(await GetShoppingCartItemWarningsAsync(customer, shoppingCartType, product,
-                storeId, attributesXml,
-                customerEnteredPrice, rentalStartDate, rentalEndDate,
-                newQuantity, addRequiredProducts, shoppingCartItem.Id));
-
-            if (warnings.Any())
-                return warnings;
-
-            shoppingCartItem.AttributesXml = attributesXml;
-            shoppingCartItem.Quantity = newQuantity;
-            shoppingCartItem.UpdatedOnUtc = DateTime.UtcNow;
-
-            await _sciRepository.UpdateAsync(shoppingCartItem);
-        }
-        else
-        {
-            //new shopping cart item
-            warnings.AddRange(await GetShoppingCartItemWarningsAsync(customer, shoppingCartType, product,
-                storeId, attributesXml, customerEnteredPrice,
-                rentalStartDate, rentalEndDate,
-                quantity, addRequiredProducts));
-
-            if (warnings.Any())
-                return warnings;
-
-            await addRequiredProductsToCartAsync(wishlistId: wishlistId);
-
-            if (warnings.Any())
-                return warnings;
-
-            //maximum items validation
-            switch (shoppingCartType)
+            if (shoppingCartType == ShoppingCartType.ShoppingCart && !await _permissionService.AuthorizeAsync(StandardPermission.PublicStore.ENABLE_SHOPPING_CART, customer))
             {
-                case ShoppingCartType.ShoppingCart:
-                    if (cart.Count >= _shoppingCartSettings.MaximumShoppingCartItems)
-                    {
-                        warnings.Add(string.Format(await _localizationService.GetResourceAsync("ShoppingCart.MaximumShoppingCartItems"), _shoppingCartSettings.MaximumShoppingCartItems));
-                        return warnings;
-                    }
-
-                    break;
-                case ShoppingCartType.Wishlist:
-                    if (cart.Count >= _shoppingCartSettings.MaximumWishlistItems)
-                    {
-                        warnings.Add(string.Format(await _localizationService.GetResourceAsync("ShoppingCart.MaximumWishlistItems"), _shoppingCartSettings.MaximumWishlistItems));
-                        return warnings;
-                    }
-
-                    break;
-                default:
-                    break;
+                warnings.Add("Shopping cart is disabled");
+                result = "warnings";
+                warningsCount = warnings.Count;
+                return warnings;
             }
 
-            var now = DateTime.UtcNow;
-            shoppingCartItem = new ShoppingCartItem
+            if (shoppingCartType == ShoppingCartType.Wishlist && !await _permissionService.AuthorizeAsync(StandardPermission.PublicStore.ENABLE_WISHLIST, customer))
             {
-                ShoppingCartType = shoppingCartType,
-                StoreId = storeId,
-                ProductId = product.Id,
-                CustomWishlistId = shoppingCartType == ShoppingCartType.Wishlist ? wishlistId : null,
-                AttributesXml = attributesXml,
-                CustomerEnteredPrice = customerEnteredPrice,
-                Quantity = quantity,
-                RentalStartDateUtc = rentalStartDate,
-                RentalEndDateUtc = rentalEndDate,
-                CreatedOnUtc = now,
-                UpdatedOnUtc = now,
-                CustomerId = customer.Id
+                warnings.Add("Wishlist is disabled");
+                result = "warnings";
+                warningsCount = warnings.Count;
+                return warnings;
+            }
+
+            if (customer.IsSearchEngineAccount())
+            {
+                warnings.Add("Search engine can't add to cart");
+                result = "warnings";
+                warningsCount = warnings.Count;
+                return warnings;
+            }
+
+            if (quantity <= 0)
+            {
+                warnings.Add(await _localizationService.GetResourceAsync("ShoppingCart.QuantityShouldPositive"));
+                result = "warnings";
+                warningsCount = warnings.Count;
+                return warnings;
+            }
+
+            //reset checkout info
+            await _customerService.ResetCheckoutDataAsync(customer, storeId);
+
+            var cart = await GetShoppingCartAsync(customer, shoppingCartType, storeId);
+
+            var shoppingCartItem = await FindShoppingCartItemInTheCartAsync(cart,
+                shoppingCartType, product, attributesXml, customerEnteredPrice,
+                rentalStartDate, rentalEndDate);
+
+            if (shoppingCartItem != null)
+            {
+                isUpdate = true;
+                //update existing shopping cart item
+                var newQuantity = shoppingCartItem.Quantity + quantity;
+
+                await addRequiredProductsToCartAsync(newQuantity, wishlistId);
+
+                if (warnings.Any())
+                {
+                    result = "warnings";
+                    warningsCount = warnings.Count;
+                    return warnings;
+                }
+
+                warnings.AddRange(await GetShoppingCartItemWarningsAsync(customer, shoppingCartType, product,
+                    storeId, attributesXml,
+                    customerEnteredPrice, rentalStartDate, rentalEndDate,
+                    newQuantity, addRequiredProducts, shoppingCartItem.Id));
+
+                if (warnings.Any())
+                {
+                    result = "warnings";
+                    warningsCount = warnings.Count;
+                    return warnings;
+                }
+
+                shoppingCartItem.AttributesXml = attributesXml;
+                shoppingCartItem.Quantity = newQuantity;
+                shoppingCartItem.UpdatedOnUtc = DateTime.UtcNow;
+
+                await _sciRepository.UpdateAsync(shoppingCartItem);
+            }
+            else
+            {
+                //new shopping cart item
+                warnings.AddRange(await GetShoppingCartItemWarningsAsync(customer, shoppingCartType, product,
+                    storeId, attributesXml, customerEnteredPrice,
+                    rentalStartDate, rentalEndDate,
+                    quantity, addRequiredProducts));
+
+                if (warnings.Any())
+                {
+                    result = "warnings";
+                    warningsCount = warnings.Count;
+                    return warnings;
+                }
+
+                await addRequiredProductsToCartAsync(wishlistId: wishlistId);
+
+                if (warnings.Any())
+                {
+                    result = "warnings";
+                    warningsCount = warnings.Count;
+                    return warnings;
+                }
+
+                //maximum items validation
+                switch (shoppingCartType)
+                {
+                    case ShoppingCartType.ShoppingCart:
+                        if (cart.Count >= _shoppingCartSettings.MaximumShoppingCartItems)
+                        {
+                            warnings.Add(string.Format(await _localizationService.GetResourceAsync("ShoppingCart.MaximumShoppingCartItems"), _shoppingCartSettings.MaximumShoppingCartItems));
+                            result = "warnings";
+                            warningsCount = warnings.Count;
+                            return warnings;
+                        }
+
+                        break;
+                    case ShoppingCartType.Wishlist:
+                        if (cart.Count >= _shoppingCartSettings.MaximumWishlistItems)
+                        {
+                            warnings.Add(string.Format(await _localizationService.GetResourceAsync("ShoppingCart.MaximumWishlistItems"), _shoppingCartSettings.MaximumWishlistItems));
+                            result = "warnings";
+                            warningsCount = warnings.Count;
+                            return warnings;
+                        }
+
+                        break;
+                    default:
+                        break;
+                }
+
+                var now = DateTime.UtcNow;
+                shoppingCartItem = new ShoppingCartItem
+                {
+                    ShoppingCartType = shoppingCartType,
+                    StoreId = storeId,
+                    ProductId = product.Id,
+                    CustomWishlistId = shoppingCartType == ShoppingCartType.Wishlist ? wishlistId : null,
+                    AttributesXml = attributesXml,
+                    CustomerEnteredPrice = customerEnteredPrice,
+                    Quantity = quantity,
+                    RentalStartDateUtc = rentalStartDate,
+                    RentalEndDateUtc = rentalEndDate,
+                    CreatedOnUtc = now,
+                    UpdatedOnUtc = now,
+                    CustomerId = customer.Id
+                };
+
+                await _sciRepository.InsertAsync(shoppingCartItem);
+
+                //updated "HasShoppingCartItems" property used for performance optimization
+                var hasShoppingCartItems = !await IsCustomerShoppingCartEmptyAsync(customer);
+                if (hasShoppingCartItems != customer.HasShoppingCartItems)
+                {
+                    customer.HasShoppingCartItems = hasShoppingCartItems;
+                    await _customerService.UpdateCustomerAsync(customer);
+                }
+            }
+
+            return warnings;
+        }
+        catch (Exception ex)
+        {
+            result = "error";
+            activity?.SetStatus(ActivityStatusCode.Error, ex.Message);
+            activity?.SetTag("exception.type", ex.GetType().FullName);
+            throw;
+        }
+        finally
+        {
+            stopwatch.Stop();
+            if (warningsCount == 0)
+                warningsCount = warnings.Count;
+
+            activity?.SetTag("cart.update", isUpdate);
+            activity?.SetTag("cart.add.result", result);
+            activity?.SetTag("cart.add.warnings.count", warningsCount);
+
+            var tags = new TagList
+            {
+                { "result", result },
+                { "cart_type", shoppingCartType.ToString() },
+                { "store_id", storeId },
+                { "update", isUpdate ? "true" : "false" }
             };
 
-            await _sciRepository.InsertAsync(shoppingCartItem);
-
-            //updated "HasShoppingCartItems" property used for performance optimization
-            var hasShoppingCartItems = !await IsCustomerShoppingCartEmptyAsync(customer);
-            if (hasShoppingCartItems != customer.HasShoppingCartItems)
-            {
-                customer.HasShoppingCartItems = hasShoppingCartItems;
-                await _customerService.UpdateCustomerAsync(customer);
-            }
+            NopTelemetry.CartAddResultTotal.Add(1, tags);
+            NopTelemetry.CartAddDurationMs.Record(stopwatch.Elapsed.TotalMilliseconds, tags);
         }
-
-        return warnings;
 
         async Task addRequiredProductsToCartAsync(int qty = 0, int? wishlistId = null)
         {
