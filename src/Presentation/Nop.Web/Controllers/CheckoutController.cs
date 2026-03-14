@@ -9,6 +9,7 @@ using Nop.Core.Domain.Security;
 using Nop.Core.Domain.Shipping;
 using Nop.Core.Domain.Tax;
 using Nop.Core.Http;
+using Nop.Core.Telemetry;
 using Nop.Services.Attributes;
 using Nop.Services.Catalog;
 using Nop.Services.Common;
@@ -1277,6 +1278,7 @@ public partial class CheckoutController : BasePublicController
     [HttpPost, ActionName("Confirm")]
     public virtual async Task<IActionResult> ConfirmOrder(bool captchaValid)
     {
+        using var activity = NopTelemetry.ActivitySource.StartActivity("checkout.confirm");
         //validation
         if (_orderSettings.CheckoutDisabled)
             return RedirectToRoute(NopRouteNames.General.CART);
@@ -1284,6 +1286,9 @@ public partial class CheckoutController : BasePublicController
         var customer = await _workContext.GetCurrentCustomerAsync();
         var store = await _storeContext.GetCurrentStoreAsync();
         var cart = await _shoppingCartService.GetShoppingCartAsync(customer, ShoppingCartType.ShoppingCart, store.Id);
+        activity?.SetTag("store.id", store.Id);
+        activity?.SetTag("checkout.cart_item_count", cart.Count);
+        activity?.SetTag("checkout.customer_is_guest", await _customerService.IsGuestAsync(customer));
 
         if (!cart.Any())
             return RedirectToRoute(NopRouteNames.General.CART);
@@ -1328,8 +1333,10 @@ public partial class CheckoutController : BasePublicController
             processPaymentRequest.CustomerId = customer.Id;
             processPaymentRequest.PaymentMethodSystemName = await _genericAttributeService.GetAttributeAsync<string>(customer,
                 NopCustomerDefaults.SelectedPaymentMethodAttribute, store.Id);
+            activity?.SetTag("payment.method.system_name", processPaymentRequest.PaymentMethodSystemName ?? "none");
             await _orderProcessingService.SetProcessPaymentRequestAsync(processPaymentRequest);
             var placeOrderResult = await _orderProcessingService.PlaceOrderAsync(processPaymentRequest);
+            activity?.SetTag("checkout.place_order.success", placeOrderResult.Success);
             if (placeOrderResult.Success)
             {
                 await _orderProcessingService.SetProcessPaymentRequestAsync(null);
@@ -1354,6 +1361,7 @@ public partial class CheckoutController : BasePublicController
         }
         catch (Exception exc)
         {
+            activity?.SetStatus(System.Diagnostics.ActivityStatusCode.Error, exc.Message);
             await _logger.WarningAsync(exc.Message, exc);
             model.Warnings.Add(exc.Message);
         }
@@ -2018,9 +2026,11 @@ public partial class CheckoutController : BasePublicController
     [HttpPost]
     public virtual async Task<IActionResult> OpcConfirmOrder(bool captchaValid)
     {
+        using var activity = NopTelemetry.ActivitySource.StartActivity("checkout.opc_confirm");
         try
         {
             var customer = await _workContext.GetCurrentCustomerAsync();
+            activity?.SetTag("checkout.customer_is_guest", await _customerService.IsGuestAsync(customer));
 
             var isCaptchaSettingEnabled = await _customerService.IsGuestAsync(customer) &&
                                           _captchaSettings.Enabled && _captchaSettings.ShowOnCheckoutPageForGuests;
@@ -2039,6 +2049,8 @@ public partial class CheckoutController : BasePublicController
 
                 var store = await _storeContext.GetCurrentStoreAsync();
                 var cart = await _shoppingCartService.GetShoppingCartAsync(customer, ShoppingCartType.ShoppingCart, store.Id);
+                activity?.SetTag("store.id", store.Id);
+                activity?.SetTag("checkout.cart_item_count", cart.Count);
 
                 if (!cart.Any())
                     throw new Exception("Your cart is empty");
@@ -2068,8 +2080,10 @@ public partial class CheckoutController : BasePublicController
                 processPaymentRequest.CustomerId = customer.Id;
                 processPaymentRequest.PaymentMethodSystemName = await _genericAttributeService.GetAttributeAsync<string>(customer,
                     NopCustomerDefaults.SelectedPaymentMethodAttribute, store.Id);
+                activity?.SetTag("payment.method.system_name", processPaymentRequest.PaymentMethodSystemName ?? "none");
                 await _orderProcessingService.SetProcessPaymentRequestAsync(processPaymentRequest);
                 var placeOrderResult = await _orderProcessingService.PlaceOrderAsync(processPaymentRequest);
+                activity?.SetTag("checkout.place_order.success", placeOrderResult.Success);
                 if (placeOrderResult.Success)
                 {
                     await _orderProcessingService.SetProcessPaymentRequestAsync(null);

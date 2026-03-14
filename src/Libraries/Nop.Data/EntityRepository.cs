@@ -1,10 +1,12 @@
-﻿using System.Linq.Expressions;
+﻿using System.Diagnostics;
+using System.Linq.Expressions;
 using System.Transactions;
 using Nop.Core;
 using Nop.Core.Caching;
 using Nop.Core.Configuration;
 using Nop.Core.Domain.Common;
 using Nop.Core.Events;
+using Nop.Core.Telemetry;
 
 namespace Nop.Data;
 
@@ -342,6 +344,11 @@ public partial class EntityRepository<TEntity> : IRepository<TEntity> where TEnt
     {
         ArgumentNullException.ThrowIfNull(entity);
 
+        using var activity = NopTelemetry.ActivitySource.StartActivity("db.entity.insert");
+        activity?.SetTag("db.operation", "insert");
+        activity?.SetTag("db.entity", typeof(TEntity).Name);
+        activity?.SetTag("db.publish_event", publishEvent);
+
         await _dataProvider.InsertEntityAsync(entity);
 
         //event notification
@@ -395,6 +402,11 @@ public partial class EntityRepository<TEntity> : IRepository<TEntity> where TEnt
     {
         ArgumentNullException.ThrowIfNull(entity);
 
+        using var activity = NopTelemetry.ActivitySource.StartActivity("db.entity.update");
+        activity?.SetTag("db.operation", "update");
+        activity?.SetTag("db.entity", typeof(TEntity).Name);
+        activity?.SetTag("db.publish_event", publishEvent);
+
         await _dataProvider.UpdateEntityAsync(entity);
 
         //event notification
@@ -434,6 +446,11 @@ public partial class EntityRepository<TEntity> : IRepository<TEntity> where TEnt
     public virtual async Task DeleteAsync(TEntity entity, bool publishEvent = true)
     {
         ArgumentNullException.ThrowIfNull(entity);
+
+        using var activity = NopTelemetry.ActivitySource.StartActivity("db.entity.delete");
+        activity?.SetTag("db.operation", "delete");
+        activity?.SetTag("db.entity", typeof(TEntity).Name);
+        activity?.SetTag("db.publish_event", publishEvent);
 
         switch (entity)
         {

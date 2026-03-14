@@ -1,4 +1,6 @@
-﻿using System.Globalization;
+﻿using System.Diagnostics;
+using System.Diagnostics.Metrics;
+using System.Globalization;
 using Newtonsoft.Json;
 using Nop.Core;
 using Nop.Core.Caching;
@@ -15,6 +17,7 @@ using Nop.Core.Domain.Shipping;
 using Nop.Core.Domain.Tax;
 using Nop.Core.Domain.Vendors;
 using Nop.Core.Events;
+using Nop.Core.Telemetry;
 using Nop.Services.Affiliates;
 using Nop.Services.Catalog;
 using Nop.Services.Common;
@@ -1571,23 +1574,68 @@ public partial class OrderProcessingService : IOrderProcessingService
         if (processPaymentRequest.OrderGuid == Guid.Empty)
             throw new Exception("Order GUID is not generated");
 
+        using var activity = NopTelemetry.ActivitySource.StartActivity("checkout.place_order");
+        activity?.SetTag("store.id", processPaymentRequest.StoreId);
+        activity?.SetTag("payment.method.system_name", processPaymentRequest.PaymentMethodSystemName ?? "none");
+
         //prepare order details
         var details = await PreparePlaceOrderDetailsAsync(processPaymentRequest);
+        activity?.SetTag("checkout.cart_item_count", details.Cart.Count);
+        activity?.SetTag("checkout.is_recurring", details.IsRecurringShoppingCart);
+
+        var orderSaveTags = new TagList
+        {
+            { "store_id", processPaymentRequest.StoreId },
+            { "payment_method", processPaymentRequest.PaymentMethodSystemName ?? "none" }
+        };
 
         async Task<PlaceOrderResult> placeOrder(PlaceOrderContainer placeOrderContainer)
         {
             var result = new PlaceOrderResult();
+            var paymentMetricResult = "not_attempted";
 
             try
             {
-                var processPaymentResult =
-                    await GetProcessPaymentResultAsync(processPaymentRequest, placeOrderContainer)
-                    ?? throw new NopException("processPaymentResult is not available");
+                ProcessPaymentResult processPaymentResult;
+                using (var paymentActivity = NopTelemetry.ActivitySource.StartActivity("checkout.payment.process"))
+                {
+                    paymentActivity?.SetTag("payment.method.system_name", processPaymentRequest.PaymentMethodSystemName ?? "none");
+                    paymentActivity?.SetTag("store.id", processPaymentRequest.StoreId);
+
+                    processPaymentResult =
+                        await GetProcessPaymentResultAsync(processPaymentRequest, placeOrderContainer)
+                        ?? throw new NopException("processPaymentResult is not available");
+
+                    paymentActivity?.SetTag("payment.status", processPaymentResult.NewPaymentStatus.ToString());
+                    paymentActivity?.SetTag("payment.error_count", processPaymentResult.Errors.Count());
+                }
+                paymentMetricResult = processPaymentResult.Success ? "success" : "failed";
+
+                NopTelemetry.CheckoutPaymentResultTotal.Add(1, new TagList
+                {
+                    { "payment_method", processPaymentRequest.PaymentMethodSystemName ?? "none" },
+                    { "result", paymentMetricResult },
+                    { "store_id", processPaymentRequest.StoreId }
+                });
 
                 if (processPaymentResult.Success)
                 {
-                    var order = await SaveOrderDetailsAsync(processPaymentRequest, processPaymentResult,
-                        placeOrderContainer);
+                    Order order;
+                    var orderSaveStopwatch = Stopwatch.StartNew();
+                    using (var orderSaveActivity = NopTelemetry.ActivitySource.StartActivity("checkout.order.save"))
+                    {
+                        orderSaveActivity?.SetTag("store.id", processPaymentRequest.StoreId);
+                        orderSaveActivity?.SetTag("payment.method.system_name", processPaymentRequest.PaymentMethodSystemName ?? "none");
+
+                        order = await SaveOrderDetailsAsync(processPaymentRequest, processPaymentResult,
+                            placeOrderContainer);
+
+                        orderSaveActivity?.SetTag("order.payment_status", order.PaymentStatus.ToString());
+                        orderSaveActivity?.SetTag("order.shipping_required", order.ShippingStatus != ShippingStatus.ShippingNotRequired);
+                    }
+                    orderSaveStopwatch.Stop();
+                    NopTelemetry.CheckoutOrderSaveDurationMs.Record(orderSaveStopwatch.Elapsed.TotalMilliseconds, orderSaveTags);
+
                     result.PlacedOrder = order;
 
                     //move shopping cart items to order items
@@ -1613,8 +1661,12 @@ public partial class OrderProcessingService : IOrderProcessingService
                         string.Format(await _localizationService.GetResourceAsync("ActivityLog.PublicStore.PlaceOrder"),
                             order.Id), order);
 
-                    //raise event       
-                    await _eventPublisher.PublishAsync(new OrderPlacedEvent(order));
+                    //raise event
+                    using (var eventActivity = NopTelemetry.ActivitySource.StartActivity("checkout.order_placed_event.publish"))
+                    {
+                        eventActivity?.SetTag("event.type", nameof(OrderPlacedEvent));
+                        await _eventPublisher.PublishAsync(new OrderPlacedEvent(order));
+                    }
 
                     //check order status
                     await CheckOrderStatusAsync(order);
@@ -1633,6 +1685,16 @@ public partial class OrderProcessingService : IOrderProcessingService
             }
             catch (Exception exc)
             {
+                if (paymentMetricResult == "not_attempted")
+                {
+                    NopTelemetry.CheckoutPaymentResultTotal.Add(1, new TagList
+                    {
+                        { "payment_method", processPaymentRequest.PaymentMethodSystemName ?? "none" },
+                        { "result", "exception" },
+                        { "store_id", processPaymentRequest.StoreId }
+                    });
+                }
+                activity?.SetStatus(ActivityStatusCode.Error, exc.Message);
                 await _logger.ErrorAsync(exc.Message, exc);
                 result.AddError(exc.Message);
             }

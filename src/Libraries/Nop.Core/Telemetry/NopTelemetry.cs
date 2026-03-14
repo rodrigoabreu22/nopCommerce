@@ -19,4 +19,10 @@ public static class NopTelemetry
     public static readonly Histogram<double> CartAddDurationMs =
         Meter.CreateHistogram<double>("cart_add_duration_ms", unit: "ms", description: "Add-to-cart service duration.");
 
+    public static readonly Counter<long> CheckoutPaymentResultTotal =
+        Meter.CreateCounter<long>("checkout_payment_result_total", unit: "1", description: "Checkout payment processing results by method and outcome.");
+
+    public static readonly Histogram<double> CheckoutOrderSaveDurationMs =
+        Meter.CreateHistogram<double>("checkout_order_save_duration_ms", unit: "ms", description: "Order persistence duration during checkout.");
+
 }
