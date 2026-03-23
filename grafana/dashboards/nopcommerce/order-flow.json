@@ -2,30 +2,359 @@
   "id": null,
   "uid": "nop-order-flow",
   "title": "nopCommerce - Order Flow",
-  "tags": ["nopcommerce", "order", "flow"],
+  "tags": [
+    "nopcommerce",
+    "order",
+    "flow"
+  ],
   "timezone": "browser",
   "schemaVersion": 38,
-  "version": 1,
+  "version": 3,
   "refresh": "10s",
   "panels": [
     {
       "type": "text",
       "title": "Order Flow - Overview",
       "id": 1,
-      "gridPos": { "x": 0, "y": 0, "w": 24, "h": 4 },
+      "gridPos": {
+        "x": 0,
+        "y": 0,
+        "w": 24,
+        "h": 4
+      },
       "options": {
         "mode": "markdown",
-        "content": "This dashboard tracks the **Customer places an order** flow. Current panels cover payment outcomes and order persistence latency. They are intended to separate payment-path issues from order-save degradation."
+        "content": "This dashboard tracks the **Customer places an order** flow. It separates **payment outcomes**, **place-order latency**, **order-save latency**, and **failure stage breakdown** so an on-call engineer can tell whether degradation is in payment, persistence, or post-order processing.\n\nTrace spans: `checkout.opc_confirm` \u2192 `checkout.place_order` \u2192 `checkout.payment.process` + `checkout.order.save` + `checkout.order_placed_event.publish`"
+      }
+    },
+    {
+      "type": "stat",
+      "title": "Checkout Success Count",
+      "id": 2,
+      "gridPos": {
+        "x": 4,
+        "y": 4,
+        "w": 5,
+        "h": 5
+      },
+      "targets": [
+        {
+          "expr": "sum(increase(checkout_payment_result_total{result=\"success\"}[$__range]))",
+          "refId": "A"
+        }
+      ],
+      "options": {
+        "reduceOptions": {
+          "values": false,
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": ""
+        },
+        "orientation": "auto",
+        "textMode": "auto",
+        "colorMode": "value"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "red",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 1
+              },
+              {
+                "color": "green",
+                "value": 10
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "type": "stat",
+      "title": "Checkout Failure Count",
+      "id": 3,
+      "gridPos": {
+        "x": 9,
+        "y": 4,
+        "w": 5,
+        "h": 5
+      },
+      "targets": [
+        {
+          "expr": "(sum(increase(checkout_place_order_failures_total[$__range])) or vector(0))",
+          "refId": "A"
+        }
+      ],
+      "options": {
+        "reduceOptions": {
+          "values": false,
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": ""
+        },
+        "orientation": "auto",
+        "textMode": "auto",
+        "colorMode": "value"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 1
+              },
+              {
+                "color": "red",
+                "value": 10
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "type": "stat",
+      "title": "Avg Place Order Duration (ms)",
+      "id": 4,
+      "gridPos": {
+        "x": 14,
+        "y": 4,
+        "w": 5,
+        "h": 5
+      },
+      "targets": [
+        {
+          "expr": "(sum(increase(checkout_place_order_duration_ms_sum[$__range])) / clamp_min(sum(increase(checkout_place_order_duration_ms_count[$__range])), 1))",
+          "refId": "A"
+        }
+      ],
+      "options": {
+        "reduceOptions": {
+          "values": false,
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": ""
+        },
+        "orientation": "auto",
+        "textMode": "auto",
+        "colorMode": "value"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 800
+              },
+              {
+                "color": "red",
+                "value": 2000
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "type": "stat",
+      "title": "Avg Order Save Duration (ms)",
+      "id": 5,
+      "gridPos": {
+        "x": 19,
+        "y": 4,
+        "w": 5,
+        "h": 5
+      },
+      "targets": [
+        {
+          "expr": "(sum(increase(checkout_order_save_duration_ms_sum[$__range])) / clamp_min(sum(increase(checkout_order_save_duration_ms_count[$__range])), 1))",
+          "refId": "A"
+        }
+      ],
+      "options": {
+        "reduceOptions": {
+          "values": false,
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": ""
+        },
+        "orientation": "auto",
+        "textMode": "auto",
+        "colorMode": "value"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 100
+              },
+              {
+                "color": "red",
+                "value": 500
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "type": "stat",
+      "title": "Checkout Entry Errors",
+      "description": "Exceptions caught at the OpcConfirmOrder entry point (empty cart, session expired, payment info missing). These fire BEFORE PlaceOrderAsync \u2014 a spike here without a matching spike in Failure Count points to a client/session problem, not a payment issue.",
+      "id": 12,
+      "gridPos": {
+        "x": 0,
+        "y": 9,
+        "w": 6,
+        "h": 5
+      },
+      "targets": [
+        {
+          "expr": "(sum(increase(checkout_opc_confirm_errors_total[$__range])) or vector(0))",
+          "refId": "A"
+        }
+      ],
+      "options": {
+        "reduceOptions": {
+          "values": false,
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": ""
+        },
+        "orientation": "auto",
+        "textMode": "auto",
+        "colorMode": "background"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 1
+              },
+              {
+                "color": "red",
+                "value": 10
+              }
+            ]
+          },
+          "color": {
+            "mode": "thresholds"
+          }
+        }
+      }
+    },
+    {
+      "type": "timeseries",
+      "title": "Checkout Error Rate (events/s)",
+      "description": "Two failure signals in the same unit (events per second).\nservice-layer failures/s: exceptions inside PlaceOrderAsync \u2014 payment, database, or inventory problems.\nentry-point errors/s: rejections before PlaceOrderAsync is reached \u2014 session, CSRF, or missing payment step.\nBoth rising together suggests infrastructure. Only entry-point rising suggests a client/session problem.",
+      "id": 10,
+      "gridPos": {
+        "x": 6,
+        "y": 9,
+        "w": 18,
+        "h": 8
+      },
+      "targets": [
+        {
+          "expr": "sum(rate(checkout_place_order_failures_total[$__rate_interval])) or vector(0)",
+          "legendFormat": "service-layer failures/s",
+          "refId": "A"
+        },
+        {
+          "expr": "sum(rate(checkout_opc_confirm_errors_total[$__rate_interval])) or vector(0)",
+          "legendFormat": "entry-point errors/s",
+          "refId": "B"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 1
+              },
+              {
+                "color": "red",
+                "value": 5
+              }
+            ]
+          },
+          "custom": {
+            "lineWidth": 2
+          },
+          "unit": "short"
+        }
       }
     },
     {
       "type": "timeseries",
       "title": "Checkout Payment Result Rate",
-      "id": 2,
-      "gridPos": { "x": 0, "y": 4, "w": 12, "h": 8 },
+      "id": 6,
+      "gridPos": {
+        "x": 0,
+        "y": 17,
+        "w": 12,
+        "h": 8
+      },
       "targets": [
         {
-          "expr": "sum by (result) (rate(checkout_payment_result_total[5m]))",
+          "expr": "sum by (result) (rate(checkout_payment_result_total[$__rate_interval]))",
           "legendFormat": "{{result}}",
           "refId": "A"
         }
@@ -33,13 +362,18 @@
     },
     {
       "type": "timeseries",
-      "title": "Checkout Order Save p95 Duration (ms)",
-      "id": 3,
-      "gridPos": { "x": 12, "y": 4, "w": 12, "h": 8 },
+      "title": "Checkout Failure Rate by Stage",
+      "id": 7,
+      "gridPos": {
+        "x": 0,
+        "y": 25,
+        "w": 12,
+        "h": 8
+      },
       "targets": [
         {
-          "expr": "histogram_quantile(0.95, sum by (le) (rate(checkout_order_save_duration_ms_bucket[5m])))",
-          "legendFormat": "p95",
+          "expr": "sum by (stage) (rate(checkout_place_order_failures_total[$__rate_interval]))",
+          "legendFormat": "{{stage}}",
           "refId": "A"
         }
       ]
@@ -47,13 +381,134 @@
     {
       "type": "timeseries",
       "title": "Checkout Payment Result Rate by Method",
-      "id": 4,
-      "gridPos": { "x": 0, "y": 12, "w": 24, "h": 8 },
+      "id": 8,
+      "gridPos": {
+        "x": 12,
+        "y": 17,
+        "w": 12,
+        "h": 8
+      },
       "targets": [
         {
-          "expr": "sum by (payment_method, result) (rate(checkout_payment_result_total[5m]))",
+          "expr": "sum by (payment_method, result) (rate(checkout_payment_result_total[$__rate_interval]))",
           "legendFormat": "{{payment_method}} / {{result}}",
           "refId": "A"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Avg Place Order vs Order Save Duration (ms)",
+      "id": 9,
+      "gridPos": {
+        "x": 12,
+        "y": 25,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "expr": "(sum(rate(checkout_place_order_duration_ms_sum[$__rate_interval])) / clamp_min(sum(rate(checkout_place_order_duration_ms_count[$__rate_interval])), 1))",
+          "legendFormat": "place_order_avg",
+          "refId": "A"
+        },
+        {
+          "expr": "(sum(rate(checkout_order_save_duration_ms_sum[$__rate_interval])) / clamp_min(sum(rate(checkout_order_save_duration_ms_count[$__rate_interval])), 1))",
+          "legendFormat": "order_save_avg",
+          "refId": "B"
+        }
+      ]
+    },
+    {
+      "id": 13,
+      "type": "stat",
+      "title": "Total Checkout Attempts",
+      "description": "All OpcConfirmOrder calls in the selected time window: successful orders + service-layer failures + entry-point rejections. Use this to establish baseline traffic \u2014 a sudden drop here means the entire checkout pipeline stopped, regardless of whether it was a payment or database problem.",
+      "gridPos": {
+        "x": 0,
+        "y": 4,
+        "w": 4,
+        "h": 5
+      },
+      "datasource": null,
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "super-light-blue"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "super-light-blue",
+                "value": null
+              }
+            ]
+          },
+          "mappings": [],
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "orientation": "auto",
+        "textMode": "auto",
+        "colorMode": "background",
+        "graphMode": "area",
+        "justifyMode": "auto"
+      },
+      "targets": [
+        {
+          "datasource": null,
+          "expr": "sum(increase(checkout_payment_result_total[$__range])) or vector(0)",
+          "legendFormat": "payment_results",
+          "refId": "A"
+        },
+        {
+          "datasource": null,
+          "expr": "sum(increase(checkout_opc_confirm_errors_total[$__range])) or vector(0)",
+          "legendFormat": "entry_errors",
+          "refId": "B"
+        }
+      ],
+      "transformations": [
+        {
+          "id": "reduce",
+          "options": {
+            "reducers": [
+              "sum"
+            ],
+            "mode": "reduceFields",
+            "includeTimeField": false
+          }
+        },
+        {
+          "id": "calculateField",
+          "options": {
+            "mode": "reduceRow",
+            "reduce": {
+              "reducer": "sum"
+            },
+            "alias": "Total Attempts"
+          }
+        },
+        {
+          "id": "filterFieldsByName",
+          "options": {
+            "include": {
+              "names": [
+                "Total Attempts"
+              ]
+            }
+          }
         }
       ]
     }

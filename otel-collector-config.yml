@@ -16,6 +16,11 @@ exporters:
       insecure: true
   prometheus:
     endpoint: "0.0.0.0:8889"
+    # Disable automatic unit suffix addition (e.g. _milliseconds).
+    # Our metric names already encode the unit (e.g. _ms), so the default
+    # behaviour of appending _milliseconds produces _ms_milliseconds, which
+    # breaks every histogram query in Grafana.
+    add_metric_suffixes: false
 
 service:
   pipelines:

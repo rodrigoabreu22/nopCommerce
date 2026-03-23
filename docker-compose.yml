@@ -12,6 +12,7 @@ services:
         depends_on:
             - nopcommerce_database
             - otel-collector
+            - flagd
     nopcommerce_database:
         image: "mcr.microsoft.com/mssql/server:2019-latest"
         container_name: nopcommerce_mssql_server
@@ -47,6 +48,15 @@ services:
             - "9090:9090"
         depends_on:
             - otel-collector
+    flagd:
+        image: "ghcr.io/open-feature/flagd:v0.11.4"
+        container_name: flagd
+        ports:
+            - "8013:8013" # gRPC (OpenFeature SDK connects here)
+            - "8016:8016" # HTTP metrics
+        volumes:
+            - "./flagd:/etc/flagd:ro"
+        command: start --uri file:/etc/flagd/flags.json
     grafana:
         image: "grafana/grafana:11.1.4"
         container_name: grafana
