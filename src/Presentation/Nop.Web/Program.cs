@@ -3,6 +3,9 @@ using Nop.Core.Configuration;
 using Nop.Core.Infrastructure;
 using Nop.Core.Telemetry;
 using Nop.Web.Framework.Infrastructure.Extensions;
+using Nop.Web.Infrastructure;
+using OpenFeature;
+using OpenFeature.Contrib.Providers.Flagd;
 using OpenTelemetry.Metrics;
 using OpenTelemetry.Resources;
 using OpenTelemetry.Trace;
@@ -57,6 +60,7 @@ public partial class Program
                     options.RecordException = true;
                 })
                 .AddHttpClientInstrumentation()
+                .AddProcessor(new TelemetrySanitizingProcessor())
                 .AddOtlpExporter())
             .WithMetrics(metrics => metrics
                 .AddMeter(NopTelemetry.Meter.Name)
@@ -66,6 +70,16 @@ public partial class Program
                 .AddOtlpExporter());
 
         var app = builder.Build();
+
+        // Initialise OpenFeature with the FlagD provider.
+        // FlagD runs as a sidecar (see docker-compose.yml) and hot-reloads
+        // flagd/flags.json — no app restart needed to toggle flags.
+        // If FlagD is unavailable the SDK falls back to the default value
+        // passed at each evaluation call, so startup is never blocked.
+        var flagdHost = builder.Configuration["FLAGD_HOST"] ?? "flagd";
+        var flagdPort = builder.Configuration["FLAGD_PORT"] ?? "8013";
+        await Api.Instance.SetProviderAsync(
+            new FlagdProvider(new Uri($"http://{flagdHost}:{flagdPort}")));
 
         //configure the application HTTP request pipeline
         app.ConfigureRequestPipeline();

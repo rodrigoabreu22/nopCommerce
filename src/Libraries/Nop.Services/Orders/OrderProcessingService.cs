@@ -1,6 +1,7 @@
 ﻿using System.Diagnostics;
 using System.Diagnostics.Metrics;
 using System.Globalization;
+using OpenFeature;
 using Newtonsoft.Json;
 using Nop.Core;
 using Nop.Core.Caching;
@@ -1588,11 +1589,18 @@ public partial class OrderProcessingService : IOrderProcessingService
             { "store_id", processPaymentRequest.StoreId },
             { "payment_method", processPaymentRequest.PaymentMethodSystemName ?? "none" }
         };
+        var placeOrderTags = new TagList
+        {
+            { "store_id", processPaymentRequest.StoreId },
+            { "payment_method", processPaymentRequest.PaymentMethodSystemName ?? "none" }
+        };
 
         async Task<PlaceOrderResult> placeOrder(PlaceOrderContainer placeOrderContainer)
         {
             var result = new PlaceOrderResult();
             var paymentMetricResult = "not_attempted";
+            var failureStage = "payment_process";
+            var placeOrderStopwatch = Stopwatch.StartNew();
 
             try
             {
@@ -1601,6 +1609,17 @@ public partial class OrderProcessingService : IOrderProcessingService
                 {
                     paymentActivity?.SetTag("payment.method.system_name", processPaymentRequest.PaymentMethodSystemName ?? "none");
                     paymentActivity?.SetTag("store.id", processPaymentRequest.StoreId);
+
+                    // Feature-flag controlled chaos: simulate a payment failure for demo/testing.
+                    // Toggle by editing flagd/flags.json (defaultVariant "off" → "high") — no restart needed.
+                    var featureClient = Api.Instance.GetClient();
+                    var simulatedFailureRate = await featureClient.GetDoubleValueAsync("demo-payment-failure-rate", 0.0);
+                    if (simulatedFailureRate > 0.0 && Random.Shared.NextDouble() < simulatedFailureRate)
+                    {
+                        paymentActivity?.SetStatus(ActivityStatusCode.Error, "Simulated payment failure (demo-payment-failure-rate flag)");
+                        paymentActivity?.SetTag("demo.simulated_failure", true);
+                        throw new NopException("Simulated payment failure — demo-payment-failure-rate feature flag is active");
+                    }
 
                     processPaymentResult =
                         await GetProcessPaymentResultAsync(processPaymentRequest, placeOrderContainer)
@@ -1622,6 +1641,7 @@ public partial class OrderProcessingService : IOrderProcessingService
                 {
                     Order order;
                     var orderSaveStopwatch = Stopwatch.StartNew();
+                    failureStage = "order_save";
                     using (var orderSaveActivity = NopTelemetry.ActivitySource.StartActivity("checkout.order.save"))
                     {
                         orderSaveActivity?.SetTag("store.id", processPaymentRequest.StoreId);
@@ -1637,6 +1657,7 @@ public partial class OrderProcessingService : IOrderProcessingService
                     NopTelemetry.CheckoutOrderSaveDurationMs.Record(orderSaveStopwatch.Elapsed.TotalMilliseconds, orderSaveTags);
 
                     result.PlacedOrder = order;
+                    failureStage = "post_order_processing";
 
                     //move shopping cart items to order items
                     await MoveShoppingCartItemsToOrderItemsAsync(placeOrderContainer, order);
@@ -1676,6 +1697,13 @@ public partial class OrderProcessingService : IOrderProcessingService
                 }
                 else
                 {
+                    NopTelemetry.CheckoutPlaceOrderFailuresTotal.Add(1, new TagList
+                    {
+                        { "stage", failureStage },
+                        { "store_id", processPaymentRequest.StoreId },
+                        { "payment_method", processPaymentRequest.PaymentMethodSystemName ?? "none" }
+                    });
+
                     foreach (var paymentError in processPaymentResult.Errors)
                     {
                         result.AddError(string.Format(
@@ -1696,7 +1724,18 @@ public partial class OrderProcessingService : IOrderProcessingService
                 }
                 activity?.SetStatus(ActivityStatusCode.Error, exc.Message);
                 await _logger.ErrorAsync(exc.Message, exc);
+                NopTelemetry.CheckoutPlaceOrderFailuresTotal.Add(1, new TagList
+                {
+                    { "stage", failureStage },
+                    { "store_id", processPaymentRequest.StoreId },
+                    { "payment_method", processPaymentRequest.PaymentMethodSystemName ?? "none" }
+                });
                 result.AddError(exc.Message);
+            }
+            finally
+            {
+                placeOrderStopwatch.Stop();
+                NopTelemetry.CheckoutPlaceOrderDurationMs.Record(placeOrderStopwatch.Elapsed.TotalMilliseconds, placeOrderTags);
             }
 
             if (result.Success)

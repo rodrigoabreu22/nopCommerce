@@ -1,4 +1,5 @@
-﻿using Microsoft.AspNetCore.Mvc;
+﻿using System.Diagnostics;
+using Microsoft.AspNetCore.Mvc;
 using Newtonsoft.Json;
 using Nop.Core;
 using Nop.Core.Domain.Common;
@@ -2135,6 +2136,8 @@ public partial class CheckoutController : BasePublicController
         }
         catch (Exception exc)
         {
+            activity?.SetStatus(ActivityStatusCode.Error, exc.Message);
+            NopTelemetry.CheckoutOpcConfirmErrorsTotal.Add(1);
             await _logger.WarningAsync(exc.Message, exc, await _workContext.GetCurrentCustomerAsync());
             return Json(new { error = 1, message = exc.Message });
         }
