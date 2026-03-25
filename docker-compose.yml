@@ -25,7 +25,7 @@ services:
         container_name: otel-collector
         command: ["--config=/etc/otelcol/otel-collector-config.yml"]
         volumes:
-            - "./otel-collector-config.yml:/etc/otelcol/otel-collector-config.yml:ro"
+            - "./assessment/observability/otel-collector-config.yml:/etc/otelcol/otel-collector-config.yml:ro"
         ports:
             - "4317:4317" # OTLP gRPC
             - "4318:4318" # OTLP HTTP
@@ -43,7 +43,7 @@ services:
         image: "prom/prometheus:v2.53.1"
         container_name: prometheus
         volumes:
-            - "./prometheus.yml:/etc/prometheus/prometheus.yml:ro"
+            - "./assessment/observability/prometheus.yml:/etc/prometheus/prometheus.yml:ro"
         ports:
             - "9090:9090"
         depends_on:
@@ -55,7 +55,7 @@ services:
             - "8013:8013" # gRPC (OpenFeature SDK connects here)
             - "8016:8016" # HTTP metrics
         volumes:
-            - "./flagd:/etc/flagd:ro"
+            - "./assessment/observability/flagd:/etc/flagd:ro"
         command: start --uri file:/etc/flagd/flags.json
     grafana:
         image: "grafana/grafana:11.1.4"
@@ -63,8 +63,8 @@ services:
         ports:
             - "3000:3000"
         volumes:
-            - "./grafana/provisioning:/etc/grafana/provisioning:ro"
-            - "./grafana/dashboards:/var/lib/grafana/dashboards:ro"
+            - "./assessment/observability/grafana/provisioning:/etc/grafana/provisioning:ro"
+            - "./assessment/observability/grafana/dashboards:/var/lib/grafana/dashboards:ro"
         depends_on:
             - prometheus
 
