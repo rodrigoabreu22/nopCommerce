@@ -6,7 +6,7 @@ This fork adds OpenTelemetry tracing and metrics to the **Customer Places an Ord
 
 ### Architecture Diagram — Instrumented Flow
 
-[WIP]
+![alt text](as1_diagram.png)
 
 ---
 
@@ -14,14 +14,14 @@ This fork adds OpenTelemetry tracing and metrics to the **Customer Places an Ord
 
 #### Spans
 
-| Span | Source | Purpose |
-|---|---|---|
-| `checkout.opc_confirm` | `CheckoutController` | Entry point for the OPC confirm action. Captures the full controller-layer latency including session validation. Errors here indicate client/session problems before any business logic runs. |
-| `checkout.place_order` | `OrderProcessingService.PlaceOrderAsync` | Root business span for the entire order placement. All child spans nest under this. Duration here is the user-visible checkout latency at the service layer. |
-| `checkout.payment.process` | Plugin call via `IPaymentPluginManager` | Isolates payment processing latency and outcome from the rest of order placement. A failure here means the payment step specifically failed: not tax, not shipping, not database. |
-| `checkout.order.save` | `EntityRepository<Order>.InsertAsync` | The only non-retryable step in checkout. If this span's duration spikes while `checkout.place_order` is stable, the overhead is in post-save processing (cache invalidation, email dispatch). |
-| `checkout.order_placed_event.publish` | `IEventPublisher.PublishAsync` | Wraps the event fan-out to all `OrderPlacedEvent` consumers. Slow consumers will show up here without affecting the payment or save spans. |
-| `cart.add.service` | `ShoppingCartService.AddToCartAsync` | Instruments the add-to-cart operation separately from checkout. Useful for distinguishing cart-layer problems (stock checks, attribute validation) from order-layer problems. |
+| Span | Started In | Wraps | Purpose |
+|---|---|---|---|
+| `checkout.opc_confirm` | `CheckoutController` | Full OPC confirm action | Entry point for the OPC confirm action. Captures the full controller-layer latency including session validation. Errors here indicate client/session problems before any business logic runs. |
+| `checkout.place_order` | `OrderProcessingService.PlaceOrderAsync` | Entire order placement logic | Root business span for the entire order placement. All child spans nest under this. Duration here is the user-visible checkout latency at the service layer. |
+| `checkout.payment.process` | `OrderProcessingService.PlaceOrderAsync` | `IPaymentPluginManager.ProcessPaymentAsync` call | Isolates payment processing latency and outcome from the rest of order placement. A failure here means the payment step specifically failed: not tax, not shipping, not database. |
+| `checkout.order.save` | `OrderProcessingService.PlaceOrderAsync` | `EntityRepository<Order>.InsertAsync` call | The only non-retryable step in checkout. If this span's duration spikes while `checkout.place_order` is stable, the overhead is in post-save processing (cache invalidation, email dispatch). |
+| `checkout.order_placed_event.publish` | `OrderProcessingService.PlaceOrderAsync` | `IEventPublisher.PublishAsync` call | Wraps the event fan-out to all `OrderPlacedEvent` consumers. Slow consumers will show up here without affecting the payment or save spans. |
+| `cart.add.service` | `ShoppingCartService.AddToCartAsync` | Entire add-to-cart logic | Instruments the add-to-cart operation separately from checkout. Useful for distinguishing cart-layer problems (stock checks, attribute validation) from order-layer problems. |
 
 #### Span Tags
 
@@ -138,12 +138,12 @@ docker compose up --build
 
 #### Screenshots
 
-*Screenshots to be added after dashboard is populated with load test data.*
+- Checkout flow dashboard panels
+![alt text](image.png)
+![alt text](image-1.png)
 
-<!-- Add screenshots here:
-grafana/dashboards/nopcommerce/screenshots/order-flow.png
-grafana/dashboards/nopcommerce/screenshots/cart-flow.png
--->
+- Cart flow dashboard panels
+![alt text](image-2.png)
 
 ---
 
