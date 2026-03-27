@@ -91,7 +91,7 @@ If an event implements `IStopProcessingEvent` and a consumer sets `StopProcessin
 
 ### Where Observability Is Easy
 
-**Service interfaces are narrow and focused.** nopCommerce service interfaces follow the single-responsibility principle — each exposes discrete methods that map to individual business actions. Instrumenting a business operation typically requires a single `ActivitySource.StartActivity` call at the service method entry point. There is no need to spread instrumentation across multiple classes or cut across layers.
+**Service interfaces are narrow and focused.** nopCommerce service interfaces follow the single-responsibility principle, each exposes discrete methods that map to individual business actions. Instrumenting a business operation typically requires a single `ActivitySource.StartActivity` call at the service method entry point. There is no need to spread instrumentation across multiple classes or cut across layers.
 
 **`EntityRepository<TEntity>` is the single write boundary.** Every database mutation goes through `EntityRepository`. A timing decorator on `IRepository<T>` would give latency data for every entity type without modifying any service class.
 
@@ -109,7 +109,7 @@ public class InstrumentedEventPublisher : IEventPublisher
 }
 ```
 
-One class, one DI registration override in `NopStartup` — full event coverage.
+One class, one DI registration override in `NopStartup`, full event coverage.
 
 **ASP.NET Core instrumentation is automatic.** Because nopCommerce runs on ASP.NET Core, adding `.AddAspNetCoreInstrumentation()` in `Program.cs` gives HTTP-level spans for every request with no code changes. These become the root spans that contain all custom child spans.
 
@@ -125,7 +125,7 @@ var paymentMethod = await _paymentPluginManager.LoadPluginBySystemNameAsync(
 result = await paymentMethod.ProcessPaymentAsync(processPaymentRequest);
 ```
 
-The plugin loaded is determined at runtime by the `PaymentMethodSystemName` stored as a customer attribute. A span wrapping this call can capture its duration and outcome, but everything inside the plugin is opaque — there are no child spans for what the payment plugin does internally, and the plugin code cannot be modified without forking it.
+The plugin loaded is determined at runtime by the `PaymentMethodSystemName` stored as a customer attribute. A span wrapping this call can capture its duration and outcome, but everything inside the plugin is opaque, there are no child spans for what the payment plugin does internally, and the plugin code cannot be modified without forking it.
 
 **The ordering of event consumers is implicit.** Because consumers are resolved by Autofac's registration order, adding a new consumer for any domain event could silently alter the execution order of existing consumers. There is no documented ordering contract. This makes it risky to add a long-running telemetry consumer (e.g. an async trace flush) to the consumer chain.
 
@@ -135,12 +135,12 @@ The plugin loaded is determined at runtime by the `PaymentMethodSystemName` stor
 
 ### What Would It Take to Instrument Properly?
 
-The biggest structural gap is the service locator. Migrating `EventPublisher` from `EngineContext.Current.ResolveAll` to constructor-injected `IEnumerable<IConsumer<TEvent>>` would make trace context propagation reliable. This change would touch `EventPublisher.cs` and require Autofac's open-generic registration to collect all `IConsumer<T>` implementations automatically. It is a small change to a single file, but it is a behavioral change — the construction of consumers would move from per-call to per-startup.
+The biggest structural gap is the service locator. Migrating `EventPublisher` from `EngineContext.Current.ResolveAll` to constructor-injected `IEnumerable<IConsumer<TEvent>>` would make trace context propagation reliable. This change would touch `EventPublisher.cs` and require Autofac's open-generic registration to collect all `IConsumer<T>` implementations automatically. It is a small change to a single file, but it is a behavioral change, the construction of consumers would move from per-call to per-startup.
 
 **Is it worth it for a targeted observability effort?** Not necessarily. If the goal is to observe a specific high-value business flow at the service-method level, the service locator problem only becomes critical when consumers themselves are slow or failure-prone. The dominant consumer pattern (cache invalidation) is fast and unlikely to degrade user-visible latency.
 
-**Is it worth it for a production system?** Yes — eventually. The `IEventPublisher` decorator approach gets 80% of the value at near-zero cost and would be the first structural change to make. The full service locator migration would follow as part of a broader testability improvement, not specifically for observability.
+**Is it worth it for a production system?** Yes, eventually. The `IEventPublisher` decorator approach gets 80% of the value at near-zero cost and would be the first structural change to make. The full service locator migration would follow as part of a broader testability improvement, not specifically for observability.
 
 ### Repository-Level Timing
 
-Decorating `IRepository<T>` to add database timing is the second highest-value change. It would answer questions like "how much of a business operation's time is database time?" without any service-layer modification. `EntityRepository<TEntity>` is already designed for extension — it uses `virtual` methods throughout, and `IRepository<T>` is registered generically in `NopStartup`. A single generic decorator would cover all entity types.
+Decorating `IRepository<T>` to add database timing is the second highest-value change. It would answer questions like "how much of a business operation's time is database time?" without any service-layer modification. `EntityRepository<TEntity>` is already designed for extension, it uses `virtual` methods throughout, and `IRepository<T>` is registered generically in `NopStartup`. A single generic decorator would cover all entity types.
